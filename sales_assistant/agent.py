@@ -61,6 +61,14 @@ class SalesAgent:
 
     def ask(self, user_text: str) -> str:
         """Run one rep turn to completion (as many tool calls as it takes) and return the answer text."""
+        start = len(self.messages)
+        try:
+            return self._ask(user_text)
+        except BaseException:
+            del self.messages[start:]  # drop the unanswered turn so the history stays valid for a retry
+            raise
+
+    def _ask(self, user_text: str) -> str:
         self.messages.append({"role": "user", "content": user_text if self.messages else with_date(user_text)})
 
         runner = self.client.beta.messages.tool_runner(
@@ -104,6 +112,22 @@ class SalesAgent:
         elif last.stop_reason == "tool_use":
             text += f"\n\n[Stopped after {MAX_ITERATIONS} steps without finishing. Ask me to continue.]"
         return text
+
+
+def describe_error(exc: BaseException) -> str | None:
+    """A plain-language message for the failures a rep can do something about, else None."""
+    if isinstance(exc, anthropic.AuthenticationError):
+        return "Claude credentials are missing or invalid. Set ANTHROPIC_API_KEY in .env or run `ant auth login`."
+    if isinstance(exc, anthropic.RateLimitError):
+        return "Rate limited by the Claude API. Wait a minute and try again."
+    if isinstance(exc, anthropic.APIStatusError):
+        return f"Claude API error {exc.status_code}: {exc.message}"
+    if isinstance(exc, anthropic.APIConnectionError):
+        return "Could not reach the Claude API. Check your network connection."
+    if isinstance(exc, TypeError) and "authentication method" in str(exc):
+        # The SDK raises this before sending anything when it finds no credentials at all.
+        return "No Claude credentials found. Set ANTHROPIC_API_KEY in .env or run `ant auth login`."
+    return None
 
 
 def _brief_args(args: object) -> str:

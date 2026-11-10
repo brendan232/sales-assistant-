@@ -69,6 +69,40 @@ def _guard(fn: Callable[[], object]) -> str:
         raise ToolError(f"{type(exc).__name__}: {exc}") from exc
 
 
+def pipeline_snapshot(conn: Connectors) -> dict:
+    """Every open deal with risk flags, riskiest first. Pure data, no model call (the web UI uses it too)."""
+    today = date.today()
+    try:
+        events = conn.workspace.upcoming_events(21)
+    except Exception:
+        events = None
+    rows = []
+    for deal in conn.crm.list_open_deals():
+        domain = (deal.get("company") or {}).get("domain") or ""
+        booked = None
+        if events is not None and domain:
+            booked = any(a.endswith("@" + domain) for e in events for a in e["attendees"])
+        flags = deal_flags(deal, today, booked)
+        last = parse_day(deal.get("last_activity_at"))
+        rows.append(
+            {
+                "id": deal["id"],
+                "name": deal["name"],
+                "amount": deal.get("amount"),
+                "stage": deal.get("stage"),
+                "close_date": deal.get("close_date"),
+                "days_since_activity": (today - last).days if last else None,
+                "next_step": deal.get("next_step"),
+                "company": deal.get("company"),
+                "contacts": [{"name": c.get("name"), "title": c.get("title")} for c in deal.get("contacts", [])],
+                "risk_score": risk_score(flags),
+                "flags": flags,
+            }
+        )
+    rows.sort(key=lambda r: (r["risk_score"], r["amount"] or 0), reverse=True)
+    return {"today": today.isoformat(), "open_deals": rows}
+
+
 def build_tools(conn: Connectors, approver: Approver, web_search: bool = True) -> list:
     @beta_tool
     def pipeline_review() -> str:
@@ -80,39 +114,7 @@ def build_tools(conn: Connectors, approver: Approver, web_search: bool = True) -
         and calendar data, so confirm against emails and call notes before acting on one.
         """
 
-        def run():
-            today = date.today()
-            try:
-                events = conn.workspace.upcoming_events(21)
-            except Exception:
-                events = None
-            rows = []
-            for deal in conn.crm.list_open_deals():
-                domain = (deal.get("company") or {}).get("domain") or ""
-                booked = None
-                if events is not None and domain:
-                    booked = any(a.endswith("@" + domain) for e in events for a in e["attendees"])
-                flags = deal_flags(deal, today, booked)
-                last = parse_day(deal.get("last_activity_at"))
-                rows.append(
-                    {
-                        "id": deal["id"],
-                        "name": deal["name"],
-                        "amount": deal.get("amount"),
-                        "stage": deal.get("stage"),
-                        "close_date": deal.get("close_date"),
-                        "days_since_activity": (today - last).days if last else None,
-                        "next_step": deal.get("next_step"),
-                        "company": deal.get("company"),
-                        "contacts": [{"name": c.get("name"), "title": c.get("title")} for c in deal.get("contacts", [])],
-                        "risk_score": risk_score(flags),
-                        "flags": flags,
-                    }
-                )
-            rows.sort(key=lambda r: (r["risk_score"], r["amount"] or 0), reverse=True)
-            return {"today": today.isoformat(), "open_deals": rows}
-
-        return _guard(run)
+        return _guard(lambda: pipeline_snapshot(conn))
 
     @beta_tool
     def get_deal(deal_id: str) -> str:

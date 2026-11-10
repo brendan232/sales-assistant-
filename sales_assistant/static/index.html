@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales assistant</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6b6860; --line: #e4e1da;
+    --accent: #1f5f4a; --accent-ink: #ffffff; --accent-soft: #e6f0ec;
+    --high: #b3261e; --high-bg: #fbe9e7; --medium: #8a5a00; --medium-bg: #fbf0d9; --low: #55534d; --low-bg: #eeece7;
+    --user: #1c1b19; --user-ink: #ffffff; --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --ink: #edebe6; --muted: #9c988e; --line: #33322e;
+      --accent: #6fc3a5; --accent-ink: #10231c; --accent-soft: #1d2d27;
+      --high: #ff9a8f; --high-bg: #3a1f1c; --medium: #f0c060; --medium-bg: #33290f; --low: #b5b1a6; --low-bg: #2a2925;
+      --user: #edebe6; --user-ink: #1c1b19;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column; }
+  button { font: inherit; cursor: pointer; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  .pill { font-size: 12px; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .pill.live { color: var(--accent); border-color: var(--accent); }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 380px) 1fr; }
+  #pipeline { border-right: 1px solid var(--line); overflow-y: auto; padding: 14px; }
+  .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat span { font-size: 12px; color: var(--muted); }
+  .section-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 4px 2px 8px; }
+  .link { background: none; border: 0; padding: 0; color: var(--accent); font-size: 12px; }
+  .deal { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 10px; }
+  .deal h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
+  .deal .meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .flags { display: flex; flex-wrap: wrap; gap: 5px; margin: 9px 0 0; }
+  .flag { font-size: 12px; padding: 1px 8px; border-radius: 6px; cursor: default; }
+  .flag.high { color: var(--high); background: var(--high-bg); }
+  .flag.medium { color: var(--medium); background: var(--medium-bg); }
+  .flag.low { color: var(--low); background: var(--low-bg); }
+  .flag.ok { color: var(--accent); background: var(--accent-soft); }
+  .deal .actions { display: flex; gap: 6px; margin-top: 10px; }
+  .btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 5px 11px; font-size: 13px; }
+  .btn:hover:not(:disabled) { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  #chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 22px 0; }
+  .col { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+  .msg { margin-bottom: 18px; overflow-wrap: anywhere; }
+  .msg.user { display: flex; justify-content: flex-end; }
+  .msg.user div { background: var(--user); color: var(--user-ink); border-radius: 16px 16px 4px 16px; padding: 8px 14px; max-width: 85%; white-space: pre-wrap; }
+  .msg.error { color: var(--high); background: var(--high-bg); border-radius: var(--radius); padding: 10px 14px; }
+  .answer > :first-child { margin-top: 0; } .answer > :last-child { margin-bottom: 0; }
+  .answer h1, .answer h2, .answer h3, .answer h4 { font-size: 15px; margin: 18px 0 6px; letter-spacing: -0.01em; }
+  .answer h1, .answer h2 { font-size: 17px; }
+  .answer p { margin: 0 0 10px; } .answer ul, .answer ol { margin: 0 0 10px; padding-left: 22px; } .answer li { margin-bottom: 3px; }
+  .answer blockquote, .answer pre { margin: 0 0 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; white-space: pre-wrap; font: inherit; }
+  .answer blockquote { border-left: 3px solid var(--accent); }
+  .answer code { background: var(--low-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .answer hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+  .answer a { color: var(--accent); }
+  .answer .tablewrap { overflow-x: auto; margin-bottom: 12px; }
+  .answer table { border-collapse: collapse; font-size: 14px; } .answer th, .answer td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+  .steps { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .steps summary { cursor: pointer; list-style: none; } .steps summary::-webkit-details-marker { display: none; }
+  .steps ul { margin: 6px 0 0; padding-left: 18px; }
+  .steps.working summary::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .steps.working summary::before { animation: none; } }
+  .approval { border: 1px solid var(--accent); border-radius: var(--radius); background: var(--panel); margin-bottom: 18px; overflow: hidden; }
+  .approval .head { padding: 9px 14px; font-weight: 600; font-size: 13px; background: var(--accent-soft); }
+  .approval pre { margin: 0; padding: 12px 14px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 320px; overflow-y: auto; }
+  .approval .foot { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .approval.done { border-color: var(--line); } .approval.done .head { background: var(--low-bg); }
+  .empty { text-align: center; color: var(--muted); padding: 8vh 0 0; }
+  .empty h2 { color: var(--ink); font-size: 20px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 99px; padding: 7px 14px; font-size: 14px; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  #composer { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 0; }
+  #composer form { display: flex; gap: 8px; align-items: flex-end; }
+  #input { flex: 1; resize: none; border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 12px; font: inherit; color: var(--ink); background: var(--bg); max-height: 160px; }
+  #input:focus, .btn:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .notice { color: var(--muted); font-size: 13px; padding: 20px 4px; }
+  @media (max-width: 860px) {
+    body { height: auto; min-height: 100%; }
+    main { display: flex; flex-direction: column-reverse; }
+    #pipeline { border-right: 0; border-top: 1px solid var(--line); overflow: visible; }
+    #chat { min-height: 78vh; } #log { min-height: 50vh; }
+    .pills { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sales assistant</h1>
+  <button class="btn primary" id="briefBtn">Daily brief</button>
+  <button class="btn" id="resetBtn">New conversation</button>
+  <div class="pills" id="pills"></div>
+</header>
+<main>
+  <aside id="pipeline" aria-label="Pipeline">
+    <div class="summary" id="summary"></div>
+    <div class="section-title"><span>Open deals, riskiest first</span><button class="link" id="refreshBtn">Refresh</button></div>
+    <div id="deals"><p class="notice">Loading pipeline…</p></div>
+  </aside>
+  <section id="chat" aria-label="Chat">
+    <div id="log"><div class="col" id="messages"></div></div>
+    <div id="composer"><div class="col">
+      <form id="form">
+        <textarea id="input" rows="1" placeholder="Ask about your pipeline, a deal, or a contact" aria-label="Message"></textarea>
+        <button class="btn primary" id="sendBtn" type="submit">Send</button>
+      </form>
+    </div></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const messages = $("messages"), log = $("log"), input = $("input");
+let epoch = "", seq = 0, busy = false, steps = null;
+
+const TOOL_LABELS = {
+  pipeline_review: "Reviewing the pipeline", get_deal: "Reading the deal record", list_meetings: "Checking recorded calls",
+  get_meeting_transcript: "Reading a call transcript", search_email: "Searching email", get_calendar: "Checking the calendar",
+  create_email_draft: "Saving an email draft", log_crm_note: "Logging a CRM note", create_crm_task: "Creating a CRM task",
+  web_search: "Searching the web",
+};
+const FLAG_LABELS = {
+  stalled: "Stalled", going_quiet: "Going quiet", no_activity_logged: "No activity logged", single_threaded: "Single-threaded",
+  no_contacts: "No contacts", no_senior_contact: "No senior contact", close_date_passed: "Close date passed",
+  closing_soon: "Closing soon", no_close_date: "No close date", no_next_step: "No next step", no_meeting_booked: "No meeting booked",
+};
+const STARTERS = ["What should I work on today?", "Which deals are single-threaded, and who should I bring in?", "What follow-ups do I owe people?"];
+
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+function esc(s) { return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function money(n) { return n == null ? "No amount" : "$" + Math.round(n).toLocaleString("en-US"); }
+
+/* Minimal Markdown renderer. Input is escaped first, so model output can never inject HTML. */
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+function md(src) {
+  const lines = src.replace(/\r/g, "").split("\n"), out = [];
+  let i = 0;
+  const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {
+      const buf = []; i++;
+      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+      i++; out.push("<pre>" + esc(buf.join("\n")) + "</pre>"); continue;
+    }
+    if (!line.trim()) { i++; continue; }
+    let m;
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); i++; continue; }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
+    if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1])) {
+      let html = "<div class='tablewrap'><table><tr>" + cells(line).map((c) => `<th>${inline(c)}</th>`).join("") + "</tr>";
+      i += 2;
+      while (i < lines.length && /^\s*\|/.test(lines[i])) html += "<tr>" + cells(lines[i++]).map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>";
+      out.push(html + "</table></div>"); continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(inline(lines[i++].replace(/^\s*>\s?/, "")));
+      out.push("<blockquote>" + buf.join("\n") + "</blockquote>"); continue;
+    }
+    const bullet = /^\s*[-*•]\s+/, number = /^\s*\d+[.)]\s+/;
+    if (bullet.test(line) || number.test(line)) {
+      const re = bullet.test(line) ? bullet : number, tag = re === bullet ? "ul" : "ol", items = [];
+      while (i < lines.length && (re.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && items.length))) {
+        if (re.test(lines[i])) items.push(inline(lines[i].replace(re, "")));
+        else items[items.length - 1] += "<br>" + inline(lines[i].trim());
+        i++;
+      }
+      out.push(`<${tag}>` + items.map((t) => `<li>${t}</li>`).join("") + `</${tag}>`); continue;
+    }
+    const buf = [];
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|```|\s*>|\s*[-*•]\s+|\s*\d+[.)]\s+|\s*\|)/.test(lines[i])) buf.push(inline(lines[i++]));
+    out.push("<p>" + buf.join("<br>") + "</p>");
+  }
+  return out.join("");
+}
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+function scrollDown() { log.scrollTop = log.scrollHeight; }
+function setBusy(value) {
+  busy = value;
+  for (const id of ["sendBtn", "briefBtn", "resetBtn"]) $(id).disabled = value;
+  document.querySelectorAll(".deal .btn, .chip").forEach((b) => (b.disabled = value));
+}
+function showEmpty() {
+  const box = el("div", "empty");
+  box.append(el("h2", null, "What do you want to move forward?"), el("div", null, "I read your CRM, calls, email and calendar. Emails are saved as drafts; nothing is sent."));
+  const chips = el("div", "chips");
+  for (const text of STARTERS) { const c = el("button", "chip", text); c.onclick = () => send(text); chips.append(c); }
+  box.append(chips); messages.replaceChildren(box);
+}
+function finishSteps() {
+  if (!steps) return;
+  const n = steps.querySelectorAll("li").length;
+  steps.classList.remove("working"); steps.open = false;
+  steps.querySelector("summary").textContent = n ? `${n} step${n === 1 ? "" : "s"} taken` : "";
+  if (!n) steps.remove();
+  steps = null;
+}
+function render(event) {
+  if (messages.querySelector(".empty")) messages.replaceChildren();
+  if (event.type === "user") {
+    const m = el("div", "msg user"); m.append(el("div", null, event.text)); messages.append(m);
+    steps = el("details", "steps working"); steps.open = true;
+    steps.append(el("summary", null, "Working…"), el("ul")); messages.append(steps);
+  } else if (event.type === "progress" && steps) {
+    const name = event.text.split(/[\s(]/)[0];
+    steps.querySelector("ul").append(el("li", null, TOOL_LABELS[name] || name));
+    steps.querySelector("summary").textContent = (TOOL_LABELS[name] || "Working") + "…";
+  } else if (event.type === "approval") {
+    const card = el("div", "approval"); card.id = "approval-" + event.id;
+    const yes = el("button", "btn primary", "Approve"), no = el("button", "btn", "Decline"), foot = el("div", "foot");
+    const answer = (approve) => { yes.disabled = no.disabled = true; api("/api/approval", { id: event.id, approve }).catch((e) => (foot.textContent = e.message)); };
+    yes.onclick = () => answer(true); no.onclick = () => answer(false);
+    foot.append(yes, no, el("span", null, event.kind === "draft" ? "Saves a draft only. Nothing is sent." : "Writes to your CRM."));
+    card.append(el("div", "head", "Approval needed: " + (event.kind === "draft" ? "email draft" : event.kind)), el("pre", null, event.preview), foot);
+    messages.insertBefore(card, steps); /* keep the working indicator below the card */
+  } else if (event.type === "approval_resolved") {
+    const card = $("approval-" + event.id);
+    if (card) { card.classList.add("done"); card.querySelector(".foot").textContent = event.approved ? "Approved." : event.timed_out ? "Timed out, not done." : "Declined."; }
+  } else if (event.type === "answer") {
+    finishSteps();
+    const m = el("div", "msg answer"); m.innerHTML = md(event.text || "(No answer.)"); messages.append(m);
+  } else if (event.type === "error") {
+    finishSteps(); messages.append(el("div", "msg error", event.text));
+  }
+}
+async function poll() {
+  try {
+    const data = await api(`/api/events?after=${seq}&epoch=${epoch}`);
+    if (data.epoch !== epoch) { epoch = data.epoch; seq = 0; steps = null; showEmpty(); }
+    for (const event of data.events) { render(event); seq = event.seq; }
+    if (data.events.length) scrollDown();
+    if (data.busy !== busy) setBusy(data.busy);
+  } catch (e) { /* server restarting or offline; keep trying */ }
+  setTimeout(poll, busy ? 500 : 2000);
+}
+async function post(path, body) {
+  if (busy) return;
+  setBusy(true);
+  try { await api(path, body); } catch (e) { setBusy(false); messages.append(el("div", "msg error", e.message)); scrollDown(); }
+}
+function send(text) { text = text.trim(); if (text) post("/api/chat", { text }); }
+
+async function loadStatus() {
+  const data = await api("/api/status");
+  $("pills").replaceChildren(...data.connectors.map((c) => el("span", "pill" + (c.sample ? "" : " live"), c.name)));
+}
+async function loadPipeline() {
+  const box = $("deals");
+  try {
+    const data = await api("/api/pipeline"), deals = data.open_deals;
+    const total = deals.reduce((s, d) => s + (d.amount || 0), 0);
+    const risky = deals.filter((d) => d.flags.some((f) => f.severity === "high")).length;
+    const stat = (value, label) => { const s = el("div", "stat"); s.append(el("b", null, value), el("span", null, label)); return s; };
+    $("summary").replaceChildren(stat(money(total), `open pipeline, ${deals.length} deal${deals.length === 1 ? "" : "s"}`), stat(String(risky), "need attention"));
+    if (!deals.length) { box.replaceChildren(el("p", "notice", "No open deals found.")); return; }
+    box.replaceChildren(...deals.map((d) => {
+      const card = el("div", "deal"), flags = el("div", "flags"), actions = el("div", "actions");
+      const idle = d.days_since_activity == null ? "no activity logged" : d.days_since_activity === 0 ? "active today" : `${d.days_since_activity}d since activity`;
+      card.append(el("h3", null, d.name), el("div", "meta", [money(d.amount), d.stage, d.close_date ? "closes " + d.close_date : null].filter(Boolean).join(" · ")),
+        el("div", "meta", `${d.contacts.length} contact${d.contacts.length === 1 ? "" : "s"} · ${idle}`));
+      if (!d.flags.length) flags.append(el("span", "flag ok", "On track"));
+      for (const f of d.flags) { const chip = el("span", "flag " + f.severity, FLAG_LABELS[f.flag] || f.flag); chip.title = f.detail; flags.append(chip); }
+      const plan = el("button", "btn", "Account plan"), follow = el("button", "btn", "Draft follow-up");
+      plan.onclick = () => send(`Give me an account plan for "${d.name}": where it stands, the stakeholder map (who we know, who is missing and how to reach them), the risks, and the steps to close it.`);
+      follow.onclick = () => send(`What follow-up is due on "${d.name}"? Check the calls and email, then write it and save it as a draft.`);
+      actions.append(plan, follow); card.append(flags, actions);
+      return card;
+    }));
+    setBusy(busy);
+  } catch (e) { box.replaceChildren(el("p", "notice", "Could not load the pipeline: " + e.message)); }
+}
+
+$("form").onsubmit = (e) => { e.preventDefault(); const text = input.value; input.value = ""; input.style.height = "auto"; send(text); };
+input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("form").requestSubmit(); } };
+input.oninput = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; };
+$("briefBtn").onclick = () => post("/api/brief", {});
+$("resetBtn").onclick = async () => { try { await api("/api/reset", {}); } catch (e) { messages.append(el("div", "msg error", e.message)); } };
+$("refreshBtn").onclick = loadPipeline;
+
+showEmpty(); loadStatus().catch(() => {}); loadPipeline(); poll();
+</script>
+</body>
+</html>

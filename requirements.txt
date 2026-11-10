@@ -1,5 +1,6 @@
 anthropic>=2.7
 requests>=2.31
+flask>=3.0
 # Only needed for live Gmail / Calendar:
 google-api-python-client>=2.100
 google-auth-oauthlib>=1.2

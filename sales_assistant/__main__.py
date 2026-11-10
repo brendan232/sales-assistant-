@@ -1,4 +1,4 @@
-"""Command line entry point: python -m sales_assistant [chat|brief|deal|doctor]"""
+"""Command line entry point: python -m sales_assistant [web|chat|brief|deal|doctor]"""
 
 from __future__ import annotations
 
@@ -7,9 +7,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-import anthropic
-
-from .agent import SalesAgent, build_connectors
+from .agent import SalesAgent, build_connectors, describe_error
 from .config import ROOT, get_settings
 from .prompts import BRIEF
 from .tools import Approver
@@ -26,20 +24,12 @@ def _agent(args, approver: Approver) -> SalesAgent:
 def _run(agent: SalesAgent, text: str) -> str | None:
     try:
         return agent.ask(text)
-    except anthropic.AuthenticationError:
-        print("Claude credentials missing or invalid. Set ANTHROPIC_API_KEY or run `ant auth login`.", file=sys.stderr)
-    except anthropic.RateLimitError:
-        print("Rate limited by the Claude API. Wait a minute and try again.", file=sys.stderr)
-    except anthropic.APIStatusError as exc:
-        print(f"Claude API error {exc.status_code}: {exc.message}", file=sys.stderr)
-    except anthropic.APIConnectionError:
-        print("Could not reach the Claude API. Check your network connection.", file=sys.stderr)
-    except TypeError as exc:
-        if "authentication method" not in str(exc):
+    except Exception as exc:
+        message = describe_error(exc)
+        if message is None:
             raise
-        # The SDK raises this before sending anything when it finds no credentials at all.
-        print("No Claude credentials found. Set ANTHROPIC_API_KEY in .env or run `ant auth login`.", file=sys.stderr)
-    return None
+        print(message, file=sys.stderr)
+        return None
 
 
 def cmd_chat(args) -> int:
@@ -59,18 +49,8 @@ def cmd_chat(args) -> int:
             return 0
         answer = _run(agent, text)
         if answer is None:
-            # Drop the unanswered turn so the history stays valid for the next attempt.
-            del agent.messages[_last_user_index(agent.messages) :]
             continue
         print(f"\n{answer}\n")
-
-
-def _last_user_index(messages: list) -> int:
-    for i in range(len(messages) - 1, -1, -1):
-        m = messages[i]
-        if m["role"] == "user" and isinstance(m["content"], str):
-            return i
-    return 0
 
 
 def cmd_brief(args) -> int:
@@ -101,6 +81,21 @@ def cmd_deal(args) -> int:
     if answer is None:
         return 1
     print(answer)
+    return 0
+
+
+def cmd_web(args) -> int:
+    import threading
+    import webbrowser
+
+    from .web import create_app
+
+    app = create_app(effort=args.effort, web_search=not args.no_web)
+    url = f"http://127.0.0.1:{args.port}"
+    print(f"Sales assistant running at {url}  (Ctrl-C to stop)", file=sys.stderr)
+    if not args.no_browser:
+        threading.Timer(0.8, webbrowser.open, args=(url,)).start()
+    app.run(host="127.0.0.1", port=args.port, threaded=True, use_reloader=False)
     return 0
 
 
@@ -136,7 +131,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sales_assistant", description="A proactive sales assistant.")
     sub = parser.add_subparsers(dest="command")
 
-    chat = sub.add_parser("chat", parents=[common], help="interactive chat (default)")
+    web = sub.add_parser("web", parents=[common], help="web interface in your browser")
+    web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    web.set_defaults(func=cmd_web)
+
+    chat = sub.add_parser("chat", parents=[common], help="terminal chat (default)")
     chat.add_argument("prompt", nargs="*", help="optional first message")
     chat.add_argument("--yes", action="store_true", help="perform write actions without asking")
     chat.set_defaults(func=cmd_chat)
