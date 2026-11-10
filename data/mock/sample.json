@@ -1,0 +1,148 @@
+{
+  "_comment": "Fictional sample data. Numbers ending in _days are offsets from today (negative = past).",
+  "deals": [
+    {
+      "id": "d-101",
+      "name": "Northwind Logistics - Platform rollout",
+      "amount": 84000,
+      "stage": "Negotiation",
+      "close_days": 9,
+      "created_days": -62,
+      "last_activity_days": -12,
+      "next_step": "",
+      "company": {"name": "Northwind Logistics", "domain": "northwind-logistics.example"},
+      "contacts": [
+        {"id": "c-1", "name": "Priya Raman", "title": "Operations Manager", "email": "priya.raman@northwind-logistics.example"}
+      ],
+      "notes": [
+        {"days": -12, "body": "Pricing call. Priya is sold. Said CFO (Daniel Okafor) has to sign anything over 50k and IT will want a security review. I owe her the security pack and a one-page business case for Daniel."},
+        {"days": -30, "body": "Demo went well. Main pain: dispatchers re-keying orders between two systems, ~6 hrs/week each."}
+      ]
+    },
+    {
+      "id": "d-102",
+      "name": "Brightline Health - Enterprise",
+      "amount": 140000,
+      "stage": "Evaluation",
+      "close_days": 38,
+      "created_days": -41,
+      "last_activity_days": -2,
+      "next_step": "Technical deep-dive with their data team",
+      "company": {"name": "Brightline Health", "domain": "brightline-health.example"},
+      "contacts": [
+        {"id": "c-2", "name": "Marcus Lindqvist", "title": "VP Clinical Operations", "email": "marcus.lindqvist@brightline-health.example"},
+        {"id": "c-3", "name": "Aiko Tanaka", "title": "Senior Data Engineer", "email": "aiko.tanaka@brightline-health.example"},
+        {"id": "c-4", "name": "Renee Dubois", "title": "Procurement Lead", "email": "renee.dubois@brightline-health.example"}
+      ],
+      "notes": [
+        {"days": -2, "body": "Marcus confirmed they are also evaluating Corvid. Decision by end of next month. Aiko worried about HL7 integration effort."}
+      ]
+    },
+    {
+      "id": "d-103",
+      "name": "Koto Robotics - Team plan",
+      "amount": 36000,
+      "stage": "Proposal sent",
+      "close_days": -6,
+      "created_days": -75,
+      "last_activity_days": -5,
+      "next_step": "",
+      "company": {"name": "Koto Robotics", "domain": "koto-robotics.example"},
+      "contacts": [
+        {"id": "c-5", "name": "Tomas Havel", "title": "Head of Engineering", "email": "tomas.havel@koto-robotics.example"},
+        {"id": "c-6", "name": "Lena Fischer", "title": "Engineering Manager", "email": "lena.fischer@koto-robotics.example"}
+      ],
+      "notes": [
+        {"days": -20, "body": "Sent proposal at list price. Tomas said budget is tight until the new fiscal year."}
+      ]
+    },
+    {
+      "id": "d-104",
+      "name": "Halcyon Media - Pilot",
+      "amount": 22000,
+      "stage": "Discovery",
+      "close_days": 55,
+      "created_days": -4,
+      "last_activity_days": -1,
+      "next_step": "Send discovery recap and proposed pilot scope",
+      "company": {"name": "Halcyon Media", "domain": "halcyon-media.example"},
+      "contacts": [
+        {"id": "c-7", "name": "Sofia Marchetti", "title": "Director of Production", "email": "sofia.marchetti@halcyon-media.example"}
+      ],
+      "notes": []
+    }
+  ],
+  "meetings": [
+    {
+      "id": "m-1",
+      "title": "Northwind Logistics - pricing review",
+      "days": -12,
+      "attendees": [{"name": "Priya Raman", "email": "priya.raman@northwind-logistics.example"}],
+      "summary": "Priya is aligned on the Platform tier at 84k. Two blockers before signature: CFO Daniel Okafor approves all spend above 50k and has not seen the business case; IT (led by Greg Sullivan) requires a security review. Priya asked for the security pack and a one-page ROI summary she can forward. She would like to go live before peak season.",
+      "action_items": ["Send security documentation pack", "Send one-page ROI summary for the CFO", "Priya to introduce Greg Sullivan from IT"],
+      "transcript": [
+        {"speaker": "Priya Raman", "text": "Honestly the price is fine from my side. The thing is, anything over fifty thousand goes to Daniel, our CFO, and he hasn't been in any of these conversations."},
+        {"speaker": "Rep", "text": "Understood. What does Daniel usually need to see?"},
+        {"speaker": "Priya Raman", "text": "A one-pager. Payback period, what we stop paying for. He won't read a deck. And Greg in IT will want your security documents before anyone signs, he blocked a vendor last year over that."},
+        {"speaker": "Rep", "text": "I can get you both this week. Would it help if I joined a short call with Daniel?"},
+        {"speaker": "Priya Raman", "text": "Maybe. Let me read the one-pager first. I can introduce you to Greg though. We really want this live before peak season in eight weeks."}
+      ]
+    },
+    {
+      "id": "m-2",
+      "title": "Brightline Health - evaluation check-in",
+      "days": -2,
+      "attendees": [
+        {"name": "Marcus Lindqvist", "email": "marcus.lindqvist@brightline-health.example"},
+        {"name": "Aiko Tanaka", "email": "aiko.tanaka@brightline-health.example"}
+      ],
+      "summary": "Brightline is running a two-vendor evaluation against Corvid. Marcus owns the decision; the CIO, Helen Abara, gives final approval but is not yet engaged. Aiko's main concern is HL7 integration effort and who maintains the mappings. Corvid has offered a free three-month pilot.",
+      "action_items": ["Schedule technical deep-dive on HL7 integration", "Share a healthcare customer reference", "Clarify pilot terms"],
+      "transcript": [
+        {"speaker": "Marcus Lindqvist", "text": "To be transparent we're looking at Corvid as well. They've offered three months free as a pilot."},
+        {"speaker": "Aiko Tanaka", "text": "My worry is HL7. Last integration took my team four months and we still maintain the mappings by hand."},
+        {"speaker": "Marcus Lindqvist", "text": "I'll make the recommendation, but Helen, our CIO, signs off. She'll ask who else in healthcare is running this in production."}
+      ]
+    },
+    {
+      "id": "m-3",
+      "title": "Halcyon Media - discovery",
+      "days": -1,
+      "attendees": [{"name": "Sofia Marchetti", "email": "sofia.marchetti@halcyon-media.example"}],
+      "summary": "Sofia runs a 40-person production team losing time to asset hand-offs between editors and clients. Interested in a paid pilot for one show. Budget sits with her COO. Wants a proposed scope by next week.",
+      "action_items": ["Send recap and proposed pilot scope"],
+      "transcript": [
+        {"speaker": "Sofia Marchetti", "text": "If we can prove it on one show I can take it to our COO, James. He holds the budget for anything new."}
+      ]
+    }
+  ],
+  "email_threads": [
+    {
+      "id": "t-1",
+      "subject": "Re: Proposal for Koto Robotics",
+      "messages": [
+        {"days": -20, "from": "me", "to": "tomas.havel@koto-robotics.example", "body": "Hi Tomas, proposal attached for the Team plan, 36k annually. Happy to walk through it."},
+        {"days": -5, "from": "tomas.havel@koto-robotics.example", "to": "me", "body": "Thanks. We like it but 36k is hard this quarter. Is there any flexibility if we start with 15 seats and expand in the new fiscal year? Lena would run the rollout, cc'ing her."}
+      ]
+    },
+    {
+      "id": "t-2",
+      "subject": "Northwind next steps",
+      "messages": [
+        {"days": -13, "from": "me", "to": "priya.raman@northwind-logistics.example", "body": "Hi Priya, looking forward to tomorrow's pricing review."}
+      ]
+    },
+    {
+      "id": "t-3",
+      "subject": "Brightline technical deep-dive",
+      "messages": [
+        {"days": -1, "from": "aiko.tanaka@brightline-health.example", "to": "me", "body": "Could we do the deep-dive Thursday? Please bring someone who can speak to HL7 v2 mappings."},
+        {"days": -1, "from": "me", "to": "aiko.tanaka@brightline-health.example", "body": "Thursday works. I'll bring our solutions engineer. Invite to follow."}
+      ]
+    }
+  ],
+  "calendar": [
+    {"id": "e-1", "title": "Brightline Health - technical deep-dive", "days": 2, "time": "15:00", "attendees": ["aiko.tanaka@brightline-health.example", "marcus.lindqvist@brightline-health.example"]},
+    {"id": "e-2", "title": "Pipeline review with manager", "days": 1, "time": "10:00", "attendees": []}
+  ]
+}
