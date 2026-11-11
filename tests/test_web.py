@@ -16,6 +16,7 @@ os.environ["SALES_ASSISTANT_MOCK"] = "1"
 
 from sales_assistant.config import get_settings
 from sales_assistant.connectors import mock
+from sales_assistant.state import Store
 from sales_assistant.web import create_app
 
 
@@ -48,7 +49,8 @@ class WebTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def app(self, replies=()):
-        return create_app(get_settings(), client=stub_client(list(replies))).test_client()
+        self.store = Store(Path(self.tmp.name) / "var")
+        return create_app(get_settings(), client=stub_client(list(replies)), store=self.store).test_client()
 
     def wait(self, http, predicate, timeout=5.0):
         deadline = time.time() + timeout
@@ -95,6 +97,29 @@ class WebTest(unittest.TestCase):
         self.assertEqual(http.post("/api/reset", json={}).status_code, 200)
         self.assertEqual(http.get("/api/events").get_json()["events"], [])
 
+    def test_inbox_followups_and_deferred_approval(self):
+        http = self.app()
+        kinds = {(f["type"], f["thread_id"]) for f in http.get("/api/followups").get_json()["items"]}
+        self.assertEqual(kinds, {("reply_owed", "t-1"), ("no_reply", "t-2")})
+
+        update = self.store.add_update("brief", "Pipeline brief", "## Do today\n\nCall Priya.")
+        action_id = self.store.queue_action("CRM note", "Deal d-101\n\nCall summary", {"op": "add_note", "args": {"deal_id": "d-101", "body": "Call summary"}}, "Call: Northwind")
+        inbox = http.get("/api/inbox").get_json()
+        self.assertEqual([u["id"] for u in inbox["updates"]], [update["id"]])
+        self.assertFalse(inbox["updates"][0]["read"])
+        self.assertEqual(inbox["pending"][0]["id"], action_id)
+
+        self.assertEqual(http.post(f"/api/updates/{update['id']}/open", json={}).status_code, 200)
+        events = http.get("/api/events").get_json()["events"]
+        self.assertEqual(events[-1]["type"], "update")
+        self.assertTrue(http.get("/api/inbox").get_json()["updates"][0]["read"])
+
+        self.assertFalse(mock.OUTBOX.exists())
+        self.assertEqual(http.post(f"/api/pending/{action_id}", json={"approve": True}).status_code, 200)
+        self.assertEqual(json.loads(mock.OUTBOX.read_text())["kind"], "crm_note")
+        self.assertEqual(http.post(f"/api/pending/{action_id}", json={"approve": True}).status_code, 404)  # only once
+        self.assertEqual(http.get("/api/inbox").get_json()["pending"], [])
+
     def test_declined_approval_writes_nothing(self):
         http = self.app([
             _message([{"type": "tool_use", "id": "toolu_1", "name": "log_crm_note", "input": {"deal_id": "d-101", "body": "x"}}], "tool_use"),
@@ -110,7 +135,7 @@ class WebTest(unittest.TestCase):
     def test_missing_credentials_show_a_readable_error(self):
         saved = {k: os.environ.pop(k, None) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
         try:
-            http = create_app(get_settings()).test_client()
+            http = create_app(get_settings(), store=Store(Path(self.tmp.name) / "var")).test_client()
             http.post("/api/chat", json={"text": "hi"})
             data = self.wait(http, lambda d: not d["busy"] and d["events"])
             self.assertEqual(data["events"][-1]["type"], "error")

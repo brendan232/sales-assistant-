@@ -114,7 +114,9 @@ class MockWorkspace:
 
     def search_threads(self, query: str, max_results: int = 10) -> list[dict]:
         terms = []
-        for token in query.lower().split():
+        for token in query.lower().replace("(", " ").replace(")", " ").split():
+            if token == "or":
+                continue
             key, sep, value = token.partition(":")
             if not sep:
                 terms.append(token)
@@ -139,6 +141,12 @@ class MockWorkspace:
 
     def create_draft(self, to: str, subject: str, body: str, thread_id: str = "") -> dict:
         return _record("email_draft", {"to": to, "subject": subject, "body": body, "thread_id": thread_id})
+
+    def my_address(self) -> str:
+        return "me"
+
+    def send_to_self(self, subject: str, body_markdown: str) -> dict:
+        return _record("email_to_self", {"subject": subject, "body": body_markdown})
 
     def upcoming_events(self, days_ahead: int = 14) -> list[dict]:
         return [

@@ -1,15 +1,11 @@
-"""Command line entry point: python -m sales_assistant [web|chat|brief|deal|doctor]"""
+"""Command line entry point: python -m sales_assistant [web|chat|brief|deal|followups|run-jobs|schedule|doctor]"""
 
 from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date
-from pathlib import Path
-
 from .agent import SalesAgent, build_connectors, describe_error
 from .config import ROOT, get_settings
-from .prompts import BRIEF
 from .tools import Approver
 
 
@@ -53,21 +49,62 @@ def cmd_chat(args) -> int:
         print(f"\n{answer}\n")
 
 
+def _job_context(args):
+    from .jobs import Context
+
+    ctx = Context.create(effort=args.effort, web_search=not args.no_web)
+    conn = ctx.connectors
+    print(f"Connected: {', '.join(c.name for c in (conn.crm, conn.meetings, conn.workspace))}", file=sys.stderr)
+    return ctx
+
+
 def cmd_brief(args) -> int:
-    agent = _agent(args, Approver("deny", allow_drafts=args.create_drafts))
-    prompt = BRIEF
-    if args.create_drafts:
-        prompt += "\nSave each follow-up email as a draft in my mailbox as well as showing it in the brief.\n"
-    answer = _run(agent, prompt)
-    if answer is None:
+    from .jobs import run_brief
+
+    ctx = _job_context(args)
+    try:
+        update = run_brief(ctx, email=args.email or None, create_drafts=True if args.create_drafts else None)
+    except Exception as exc:
+        message = describe_error(exc)
+        if message is None:
+            raise
+        print(message, file=sys.stderr)
         return 1
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{date.today().isoformat()}.md"
-    path.write_text(f"# Pipeline brief, {date.today().isoformat()}\n\n{answer}\n")
-    print(answer)
-    print(f"\nSaved to {path}", file=sys.stderr)
+    print(update["body"])
+    print(f"\nSaved to {ROOT / 'briefs'} and to Updates in the web interface.", file=sys.stderr)
     return 0
+
+
+def cmd_run_jobs(args) -> int:
+    """What the schedule runs: follow up new calls, and write the brief if it is due."""
+    from .jobs import run_due
+
+    run_due(_job_context(args), force_brief=args.brief_now)
+    return 0
+
+
+def cmd_followups(args) -> int:
+    """Email threads waiting on a reply. No model calls."""
+    from datetime import date as _date
+
+    from .followups import find_followups
+    from .state import Store
+
+    settings = get_settings()
+    items = find_followups(build_connectors(settings), _date.today(), settings.reply_owed_days, settings.no_reply_days, Store().drafted_threads())
+    if not items:
+        print("Nothing waiting.")
+    for item in items:
+        label = "You owe a reply" if item["type"] == "reply_owed" else "No reply yet"
+        drafted = "  [draft saved]" if item["draft_already_saved"] else ""
+        print(f"{label}, {item['days_waiting']}d: {item['subject']}  ({item['deal_name']}){drafted}")
+    return 0
+
+
+def cmd_schedule(args) -> int:
+    from . import schedule
+
+    return {"install": schedule.install, "remove": schedule.remove, "status": schedule.status}[args.action]()
 
 
 def cmd_deal(args) -> int:
@@ -141,10 +178,21 @@ def main(argv: list[str] | None = None) -> int:
     chat.add_argument("--yes", action="store_true", help="perform write actions without asking")
     chat.set_defaults(func=cmd_chat)
 
-    brief = sub.add_parser("brief", parents=[common], help="unattended daily pipeline brief")
-    brief.add_argument("--create-drafts", action="store_true", help="also save follow-ups as Gmail drafts")
-    brief.add_argument("--out", default=str(ROOT / "briefs"), help="directory for the saved brief")
+    brief = sub.add_parser("brief", parents=[common], help="write the daily pipeline brief now")
+    brief.add_argument("--create-drafts", action="store_true", help="save follow-ups as Gmail drafts (default: AUTO_DRAFTS)")
+    brief.add_argument("--email", action="store_true", help="also email the brief to yourself")
     brief.set_defaults(func=cmd_brief)
+
+    jobs = sub.add_parser("run-jobs", parents=[common], help="do whatever is due (what the schedule runs)")
+    jobs.add_argument("--brief-now", action="store_true", help="write the brief even if it is not due")
+    jobs.set_defaults(func=cmd_run_jobs)
+
+    followups = sub.add_parser("followups", help="list email threads waiting on a reply")
+    followups.set_defaults(func=cmd_followups)
+
+    sched = sub.add_parser("schedule", help="install or remove the background schedule")
+    sched.add_argument("action", choices=["install", "remove", "status"])
+    sched.set_defaults(func=cmd_schedule)
 
     deal = sub.add_parser("deal", parents=[common], help="account plan for one deal")
     deal.add_argument("name", help="deal or company name")

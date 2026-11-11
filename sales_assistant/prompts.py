@@ -65,14 +65,44 @@ text, concise, with no placeholders left to fill in.
 BRIEF = """\
 Prepare my daily pipeline brief. This runs unattended, so do the full review without asking me anything.
 
-Review every open deal, then dig into the ones that need attention using calls, email and calendar. Give me:
+Review every open deal and check email_followups, then dig into the ones that need attention using calls, \
+email and calendar. Give me:
 
 1. Do today: the three to five actions that matter most across the pipeline, in priority order, each with the \
 deal, the reason with its evidence, and the finished draft or exact step.
-2. Deal by deal, for each deal at risk: where it really stands, who we are and are not talking to, who to bring \
+2. Emails waiting: every thread where I owe a reply or a buyer has gone quiet, with how long it has waited \
+and what you drafted.
+3. Deal by deal, for each deal at risk: where it really stands, who we are and are not talking to, who to bring \
 in and how, and the plan to win it.
-3. Forecast notes: any deal whose close date or amount I should change, and any I should stop spending time on.
-4. Deals in good shape: one line each.
+4. Forecast notes: any deal whose close date or amount I should change, and any I should stop spending time on.
+5. Deals in good shape: one line each.
+"""
+
+BRIEF_DRAFTS = """
+For each email that needs a follow-up and does not already have a draft saved, write the reply or nudge and \
+save it as a draft in that thread. Say in the brief which drafts are waiting in my Drafts folder.
+"""
+
+POST_CALL = """\
+A sales call has just finished and been recorded. This runs unattended, so do the work without asking me \
+anything.
+
+Call: {title} on {date}, meeting id {meeting_id}. Attendees: {attendees}.
+
+Read the transcript, find the deal it belongs to, and check the recent email thread with these people. Then:
+
+1. Write the follow-up email to the buyer: a short recap of what was agreed, every item I promised with when \
+they will get it, what I need from them, and a specific proposed next step. Save it as a draft, in the existing \
+thread if there is one.
+2. Log a CRM note on the deal summarising the call: where they stand, what changed, objections, and anything \
+said about budget, timing, decision process or competitors.
+3. Create a CRM task for each thing I committed to, with a due date.
+4. Tell me who was mentioned on the call that is not yet a contact on the deal, what role they play, and how to \
+reach them.
+
+Then give me a short summary: what happened on the call, what you prepared, and anything I should worry about. \
+If this call does not belong to an open deal (an internal meeting, or a company not in the pipeline), say so in \
+one line and do nothing else.
 """
 
 

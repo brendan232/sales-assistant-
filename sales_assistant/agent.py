@@ -51,10 +51,11 @@ class SalesAgent:
         effort: str = "high",
         web_search: bool = True,
         on_progress: Callable[[str], None] | None = None,
+        store=None,
     ) -> None:
         self.client = client or anthropic.Anthropic()
         self.system = system_blocks(settings)
-        self.tools = build_tools(connectors, approver, web_search=web_search)
+        self.tools = build_tools(connectors, approver, web_search=web_search, store=store, settings=settings)
         self.effort = effort
         self.messages: list = []
         self._progress = on_progress or (lambda line: print(line, file=sys.stderr))

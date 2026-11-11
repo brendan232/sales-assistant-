@@ -14,6 +14,7 @@ from typing import Callable
 from anthropic import beta_tool
 from anthropic.lib.tools import ToolError
 
+from .followups import find_followups
 from .signals import deal_flags, parse_day, risk_score
 
 WEB_SEARCH = {"type": "web_search_20260209", "name": "web_search", "max_uses": 6}
@@ -40,8 +41,11 @@ class Approver:
         self.allow_drafts = allow_drafts
         self._prompt = prompt
 
-    def check(self, kind: str, preview: str) -> str | None:
-        """Return None if approved, otherwise the message to hand back to the model."""
+    def check(self, kind: str, preview: str, action: dict | None = None) -> str | None:
+        """Return None if approved, otherwise the message to hand back to the model.
+
+        `action` describes the write ({"op": ..., "args": {...}}) so an approver can store it and run it later.
+        """
         if self.mode == "allow" or (kind == "draft" and self.allow_drafts and self.mode == "deny"):
             return None
         if self.mode == "deny":
@@ -54,6 +58,41 @@ class Approver:
         if answer in ("y", "yes"):
             return None
         return "The rep declined this action. Do not retry it; ask what they would like changed."
+
+
+class QueueApprover(Approver):
+    """For unattended runs: writes are parked for the rep to approve later in the web interface.
+
+    Email drafts go straight through when `allow_drafts` is set, since a draft is never sent.
+    """
+
+    def __init__(self, store, source: str, allow_drafts: bool = True) -> None:
+        super().__init__("deny", allow_drafts=allow_drafts)
+        self._store = store
+        self._source = source
+
+    def check(self, kind: str, preview: str, action: dict | None = None) -> str | None:
+        if kind == "draft" and self.allow_drafts:
+            return None
+        if action is None:
+            return super().check(kind, preview)
+        self._store.queue_action(kind, preview, action, self._source)
+        return (
+            "Queued for the rep's approval: it will be carried out when they approve it in the app. "
+            "Mention it in your answer as awaiting approval, and do not queue the same action again."
+        )
+
+
+def execute_action(conn: "Connectors", action: dict) -> dict:
+    """Carry out a stored write action once the rep has approved it."""
+    op, args = action["op"], action["args"]
+    if op == "create_draft":
+        return conn.workspace.create_draft(args["to"], args["subject"], args["body"], args.get("thread_id", ""))
+    if op == "add_note":
+        return conn.crm.add_note(args["deal_id"], args["body"])
+    if op == "create_task":
+        return conn.crm.create_task(args["deal_id"], args["title"], args["due_date"], args.get("notes", ""))
+    raise ValueError(f"Unknown action {op!r}")
 
 
 def _json(value) -> str:
@@ -103,7 +142,10 @@ def pipeline_snapshot(conn: Connectors) -> dict:
     return {"today": today.isoformat(), "open_deals": rows}
 
 
-def build_tools(conn: Connectors, approver: Approver, web_search: bool = True) -> list:
+def build_tools(conn: Connectors, approver: Approver, web_search: bool = True, store=None, settings=None) -> list:
+    reply_owed_days = settings.reply_owed_days if settings else 2
+    no_reply_days = settings.no_reply_days if settings else 5
+
     @beta_tool
     def pipeline_review() -> str:
         """List every open deal with computed risk flags, sorted so the deals needing attention come first.
@@ -155,6 +197,18 @@ def build_tools(conn: Connectors, approver: Approver, web_search: bool = True) -
         return _guard(lambda: conn.workspace.search_threads(query, max_results))
 
     @beta_tool
+    def email_followups() -> str:
+        """List email threads on open deals that need a follow-up, worked out from who wrote last and how long ago.
+
+        Each item is either "reply_owed" (the buyer wrote last and the rep has not answered) or "no_reply" (the rep
+        wrote last and the buyer has gone quiet), with the deal, thread id, days waiting and an excerpt of the last
+        message. Items with draft_already_saved true already have a draft waiting in the rep's mailbox, so do not
+        draft those again. Use this for any question about follow-ups owed or people who have gone quiet.
+        """
+        drafted = store.drafted_threads() if store is not None else {}
+        return _guard(lambda: find_followups(conn, date.today(), reply_owed_days, no_reply_days, drafted))
+
+    @beta_tool
     def get_calendar(days_ahead: int = 14) -> str:
         """List the rep's upcoming calendar events with attendee emails.
 
@@ -173,10 +227,14 @@ def build_tools(conn: Connectors, approver: Approver, web_search: bool = True) -
             body: Plain-text body, ready to send as written.
             thread_id: Thread id from search_email to draft a reply in that thread. Empty for a new email.
         """
-        refusal = approver.check("draft", f"To: {to}\nSubject: {subject}\n\n{body}")
+        action = {"op": "create_draft", "args": {"to": to, "subject": subject, "body": body, "thread_id": thread_id}}
+        refusal = approver.check("draft", f"To: {to}\nSubject: {subject}\n\n{body}", action)
         if refusal:
             return refusal
-        return _guard(lambda: conn.workspace.create_draft(to, subject, body, thread_id))
+        result = _guard(lambda: conn.workspace.create_draft(to, subject, body, thread_id))
+        if store is not None and thread_id:
+            store.record_draft(thread_id)  # so the email watch knows this thread already has a draft waiting
+        return result
 
     @beta_tool
     def log_crm_note(deal_id: str, body: str) -> str:
@@ -186,7 +244,8 @@ def build_tools(conn: Connectors, approver: Approver, web_search: bool = True) -
             deal_id: The deal to attach the note to.
             body: The note text.
         """
-        refusal = approver.check("CRM note", f"Deal {deal_id}\n\n{body}")
+        action = {"op": "add_note", "args": {"deal_id": deal_id, "body": body}}
+        refusal = approver.check("CRM note", f"Deal {deal_id}\n\n{body}", action)
         if refusal:
             return refusal
         return _guard(lambda: conn.crm.add_note(deal_id, body))
@@ -201,14 +260,15 @@ def build_tools(conn: Connectors, approver: Approver, web_search: bool = True) -
             due_date: Due date as YYYY-MM-DD.
             notes: Optional detail.
         """
-        refusal = approver.check("CRM task", f"Deal {deal_id}\n{title} (due {due_date})\n{notes}")
+        action = {"op": "create_task", "args": {"deal_id": deal_id, "title": title, "due_date": due_date, "notes": notes}}
+        refusal = approver.check("CRM task", f"Deal {deal_id}\n{title} (due {due_date})\n{notes}", action)
         if refusal:
             return refusal
         return _guard(lambda: conn.crm.create_task(deal_id, title, due_date, notes))
 
     tools: list = [
         pipeline_review, get_deal, list_meetings, get_meeting_transcript,
-        search_email, get_calendar, create_email_draft, log_crm_note, create_crm_task,
+        search_email, email_followups, get_calendar, create_email_draft, log_crm_note, create_crm_task,
     ]
     if web_search:
         tools.append(WEB_SEARCH)

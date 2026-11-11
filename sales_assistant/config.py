@@ -35,6 +35,11 @@ class Settings:
     google_token_file: Path
     force_mock: bool
     playbook_path: Path
+    brief_time: str = "07:40"
+    brief_email: bool = False
+    auto_drafts: bool = True
+    reply_owed_days: int = 2
+    no_reply_days: int = 5
 
     @property
     def hubspot_live(self) -> bool:
@@ -58,6 +63,10 @@ def get_settings() -> Settings:
         p = Path(env(name) or default)
         return p if p.is_absolute() else ROOT / p
 
+    def flag(name: str, default: bool) -> bool:
+        value = (env(name) or "").strip().lower()
+        return default if value == "" else value not in ("0", "false", "no", "off")
+
     return Settings(
         rep_name=env("REP_NAME", ""),
         rep_email=env("REP_EMAIL", ""),
@@ -69,4 +78,9 @@ def get_settings() -> Settings:
         google_token_file=path("GOOGLE_TOKEN_FILE", "token.json"),
         force_mock=env("SALES_ASSISTANT_MOCK", "") not in ("", "0", "false"),
         playbook_path=path("SALES_PLAYBOOK", "playbook.md"),
+        brief_time=env("BRIEF_TIME") or "07:40",
+        brief_email=flag("BRIEF_EMAIL", False),
+        auto_drafts=flag("AUTO_DRAFTS", True),
+        reply_owed_days=int(env("REPLY_OWED_DAYS") or 2),
+        no_reply_days=int(env("NO_REPLY_DAYS") or 5),
     )

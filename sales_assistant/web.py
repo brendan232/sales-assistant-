@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import threading
 import uuid
+from datetime import date
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 from .agent import SalesAgent, build_connectors, describe_error
 from .config import Settings, get_settings
-from .prompts import BRIEF
-from .tools import Approver, pipeline_snapshot
+from .prompts import BRIEF, with_date
+from .followups import find_followups
+from .state import Store
+from .tools import Approver, execute_action, pipeline_snapshot
 
 STATIC = Path(__file__).parent / "static"
 APPROVAL_TIMEOUT_S = 15 * 60
@@ -90,16 +93,17 @@ class WebApprover(Approver):
         super().__init__("ask")
         self._conversation = conversation
 
-    def check(self, kind: str, preview: str) -> str | None:
+    def check(self, kind: str, preview: str, action: dict | None = None) -> str | None:
         if self._conversation.request_approval(kind, preview):
             return None
         return "The rep declined this action. Do not retry it; ask what they would like changed."
 
 
 def create_app(
-    settings: Settings | None = None, *, client=None, effort: str = "high", web_search: bool = True
+    settings: Settings | None = None, *, client=None, effort: str = "high", web_search: bool = True, store: Store | None = None
 ) -> Flask:
     settings = settings or get_settings()
+    store = store or Store()
     connectors = build_connectors(settings)
     conversation = Conversation()
     state: dict = {}
@@ -107,7 +111,7 @@ def create_app(
     def new_agent() -> SalesAgent:
         return SalesAgent(
             settings, connectors, WebApprover(conversation), client=client, effort=effort, web_search=web_search,
-            on_progress=lambda line: conversation.emit("progress", text=line.strip(" ·")),
+            on_progress=lambda line: conversation.emit("progress", text=line.strip(" ·")), store=store,
         )
 
     state["agent"] = new_agent()
@@ -145,6 +149,53 @@ def create_app(
             return jsonify(pipeline_snapshot(connectors))
         except Exception as exc:
             return jsonify(error=f"{type(exc).__name__}: {exc}"), 502
+
+    @app.get("/api/followups")
+    def followups():
+        try:
+            items = find_followups(connectors, date.today(), settings.reply_owed_days, settings.no_reply_days, store.drafted_threads())
+            return jsonify(items=items)
+        except Exception as exc:
+            return jsonify(error=f"{type(exc).__name__}: {exc}"), 502
+
+    @app.get("/api/inbox")
+    def inbox():
+        """Work the assistant did on its own: updates to read and actions waiting for approval."""
+        return jsonify(updates=store.list_updates(), pending=store.pending())
+
+    @app.post("/api/updates/<update_id>/open")
+    def open_update(update_id: str):
+        update = store.get_update(update_id, mark_read=True)
+        if update is None:
+            return jsonify(error="That update no longer exists."), 404
+        if not conversation.try_start():
+            return jsonify(error="Wait for the current answer first."), 409
+        try:
+            # Show it in the chat and give the agent the text, so the rep can ask follow-up questions about it.
+            conversation.emit("update", title=update["title"], text=update["body"], created=update["created"])
+            prefix = "" if state["agent"].messages else with_date("")
+            state["agent"].messages.append(
+                {"role": "user", "content": f"{prefix}I am reading this update you prepared for me earlier ({update['title']}, {update['created']}):\n\n{update['body']}"}
+            )
+        finally:
+            conversation.finish()
+        return jsonify(ok=True)
+
+    @app.post("/api/pending/<action_id>")
+    def decide_pending(action_id: str):
+        approve = bool(request.get_json().get("approve"))
+        item = store.take_pending(action_id)
+        if item is None:
+            return jsonify(error="That action has already been decided."), 404
+        if not approve:
+            return jsonify(ok=True, status="declined")
+        try:
+            result = execute_action(connectors, item["action"])
+        except Exception as exc:
+            # Put it back so the rep can try again once the problem is fixed.
+            store.change(lambda s: s.setdefault("pending", []).insert(0, item))
+            return jsonify(error=f"Could not do it: {type(exc).__name__}: {exc}"), 502
+        return jsonify(ok=True, status=str(result.get("status", "done")))
 
     @app.get("/api/events")
     def events():

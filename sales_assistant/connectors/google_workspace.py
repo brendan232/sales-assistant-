@@ -1,7 +1,8 @@
 """Gmail + Google Calendar connector.
 
-Scopes are deliberately narrow: read mail, create drafts (never send), read
-calendar. The first run opens a browser for OAuth consent and stores the token
+Scopes are deliberately narrow: read mail, compose, read calendar. Emails to
+buyers are only ever saved as drafts. The one thing this module sends is the
+rep's own brief, to the rep's own address (send_to_self). The first run opens a browser for OAuth consent and stores the token
 in GOOGLE_TOKEN_FILE.
 """
 
@@ -57,6 +58,7 @@ class GoogleWorkspace:
         creds = _credentials(client_secrets, token_file)
         self._gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
         self._calendar = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        self._me: str | None = None
 
     def search_threads(self, query: str, max_results: int = 10) -> list[dict]:
         listing = self._gmail.users().threads().list(userId="me", q=query, maxResults=max_results).execute()
@@ -71,7 +73,7 @@ class GoogleWorkspace:
                 body = _plain_text(msg["payload"]) or msg.get("snippet", "")
                 messages.append(
                     {
-                        "date": headers.get("date", ""),
+                        "date": datetime.fromtimestamp(int(msg.get("internalDate", 0)) / 1000, timezone.utc).isoformat(timespec="seconds"),
                         "from": headers.get("from", ""),
                         "to": headers.get("to", ""),
                         "body": body[:BODY_LIMIT],
@@ -90,6 +92,28 @@ class GoogleWorkspace:
             message["threadId"] = thread_id
         draft = self._gmail.users().drafts().create(userId="me", body={"message": message}).execute()
         return {"status": "draft saved in Gmail (not sent)", "id": draft.get("id")}
+
+    def my_address(self) -> str:
+        if self._me is None:
+            self._me = self._gmail.users().getProfile(userId="me").execute().get("emailAddress", "")
+        return self._me
+
+    def send_to_self(self, subject: str, body_markdown: str) -> dict:
+        """Email the rep their own brief. The recipient is fixed to the signed-in address: this cannot mail anyone else."""
+        import markdown
+
+        mime = EmailMessage()
+        mime["To"] = self.my_address()
+        mime["Subject"] = subject
+        mime.set_content(body_markdown)
+        html = markdown.markdown(body_markdown, extensions=["tables", "sane_lists"])
+        mime.add_alternative(
+            f'<div style="font:15px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:680px">{html}</div>',
+            subtype="html",
+        )
+        raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
+        sent = self._gmail.users().messages().send(userId="me", body={"raw": raw}).execute()
+        return {"status": "sent to self", "id": sent.get("id")}
 
     def upcoming_events(self, days_ahead: int = 14) -> list[dict]:
         now = datetime.now(timezone.utc)

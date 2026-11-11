@@ -79,6 +79,21 @@
   .approval pre { margin: 0; padding: 12px 14px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 320px; overflow-y: auto; }
   .approval .foot { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   .approval.done { border-color: var(--line); } .approval.done .head { background: var(--low-bg); }
+  .group { margin-bottom: 14px; } .group[hidden] { display: none; }
+  .item { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; font-size: 13px; }
+  .item h4 { margin: 0 0 2px; font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+  .item .meta { color: var(--muted); font-size: 12.5px; }
+  .item pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--ink); max-height: 4.6em; overflow: hidden; cursor: pointer; }
+  .item pre.open { max-height: 300px; overflow-y: auto; }
+  .item .actions { display: flex; gap: 6px; margin-top: 9px; align-items: center; flex-wrap: wrap; }
+  button.item { display: block; width: 100%; text-align: left; color: var(--ink); }
+  button.item:hover { border-color: var(--accent); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 7px; }
+  .count { background: var(--accent); color: var(--accent-ink); border-radius: 99px; padding: 0 7px; font-size: 11px; margin-left: 6px; letter-spacing: 0; }
+  .update { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 18px; }
+  .update .head { padding: 9px 14px; font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; }
+  .update .head span { color: var(--muted); font-weight: 400; white-space: nowrap; }
+  .update .answer { padding: 14px; }
   .empty { text-align: center; color: var(--muted); padding: 8vh 0 0; }
   .empty h2 { color: var(--ink); font-size: 20px; margin: 0 0 6px; letter-spacing: -0.02em; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
@@ -108,6 +123,18 @@
 <main>
   <aside id="pipeline" aria-label="Pipeline">
     <div class="summary" id="summary"></div>
+    <div class="group" id="pendingGroup" hidden>
+      <div class="section-title"><span>Needs your approval<span class="count" id="pendingCount"></span></span></div>
+      <div id="pending"></div>
+    </div>
+    <div class="group" id="updatesGroup" hidden>
+      <div class="section-title"><span>Prepared for you</span></div>
+      <div id="updates"></div>
+    </div>
+    <div class="group" id="followupsGroup" hidden>
+      <div class="section-title"><span>Emails waiting</span></div>
+      <div id="followups"></div>
+    </div>
     <div class="section-title"><span>Open deals, riskiest first</span><button class="link" id="refreshBtn">Refresh</button></div>
     <div id="deals"><p class="notice">Loading pipeline…</p></div>
   </aside>
@@ -206,7 +233,13 @@ function scrollDown() { log.scrollTop = log.scrollHeight; }
 function setBusy(value) {
   busy = value;
   for (const id of ["sendBtn", "briefBtn", "resetBtn"]) $(id).disabled = value;
-  document.querySelectorAll(".deal .btn, .chip").forEach((b) => (b.disabled = value));
+  document.querySelectorAll(".deal .btn, .chip, .needs-idle").forEach((b) => (b.disabled = value));
+}
+function when(iso) {
+  const d = new Date(iso); if (isNaN(d)) return "";
+  const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 864e5);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return days === 0 ? `Today ${time}` : days === 1 ? `Yesterday ${time}` : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 function showEmpty() {
   const box = el("div", "empty");
@@ -244,6 +277,10 @@ function render(event) {
   } else if (event.type === "approval_resolved") {
     const card = $("approval-" + event.id);
     if (card) { card.classList.add("done"); card.querySelector(".foot").textContent = event.approved ? "Approved." : event.timed_out ? "Timed out, not done." : "Declined."; }
+  } else if (event.type === "update") {
+    const card = el("div", "update"), head = el("div", "head"), body = el("div", "answer");
+    head.append(el("div", null, event.title), el("span", null, when(event.created)));
+    body.innerHTML = md(event.text || ""); card.append(head, body); messages.append(card);
   } else if (event.type === "answer") {
     finishSteps();
     const m = el("div", "msg answer"); m.innerHTML = md(event.text || "(No answer.)"); messages.append(m);
@@ -257,7 +294,7 @@ async function poll() {
     if (data.epoch !== epoch) { epoch = data.epoch; seq = 0; steps = null; showEmpty(); }
     for (const event of data.events) { render(event); seq = event.seq; }
     if (data.events.length) scrollDown();
-    if (data.busy !== busy) setBusy(data.busy);
+    if (data.busy !== busy) { const finished = busy && !data.busy; setBusy(data.busy); if (finished) { loadInbox(); loadFollowups(); } }
   } catch (e) { /* server restarting or offline; keep trying */ }
   setTimeout(poll, busy ? 500 : 2000);
 }
@@ -298,14 +335,62 @@ async function loadPipeline() {
   } catch (e) { box.replaceChildren(el("p", "notice", "Could not load the pipeline: " + e.message)); }
 }
 
+const KIND_LABELS = { draft: "Email draft", "CRM note": "CRM note", "CRM task": "CRM task" };
+async function loadInbox() {
+  let data;
+  try { data = await api("/api/inbox"); } catch (e) { return; }
+  $("pendingGroup").hidden = !data.pending.length; $("pendingCount").textContent = data.pending.length;
+  $("pending").replaceChildren(...data.pending.map((p) => {
+    const card = el("div", "item"), pre = el("pre", null, p.preview), actions = el("div", "actions"), note = el("span", "meta");
+    const yes = el("button", "btn primary", "Approve"), no = el("button", "btn", "Decline");
+    pre.title = "Click to expand"; pre.onclick = () => pre.classList.toggle("open");
+    const decide = async (approve) => {
+      yes.disabled = no.disabled = true;
+      try { await api("/api/pending/" + p.id, { approve }); loadInbox(); }
+      catch (e) { note.textContent = e.message; yes.disabled = no.disabled = false; }
+    };
+    yes.onclick = () => decide(true); no.onclick = () => decide(false);
+    actions.append(yes, no, note);
+    card.append(el("h4", null, KIND_LABELS[p.kind] || p.kind), el("div", "meta", p.source), pre, actions);
+    return card;
+  }));
+  $("updatesGroup").hidden = !data.updates.length;
+  $("updates").replaceChildren(...data.updates.slice(0, 6).map((u) => {
+    const row = el("button", "item needs-idle"), title = el("h4");
+    if (!u.read) title.append(el("span", "dot"));
+    title.append(u.title); row.append(title, el("div", "meta", when(u.created)));
+    row.disabled = busy;
+    row.onclick = async () => { try { await api(`/api/updates/${u.id}/open`, {}); loadInbox(); } catch (e) { messages.append(el("div", "msg error", e.message)); scrollDown(); } };
+    return row;
+  }));
+}
+async function loadFollowups() {
+  let data;
+  try { data = await api("/api/followups"); } catch (e) { return; }
+  $("followupsGroup").hidden = !data.items.length;
+  $("followups").replaceChildren(...data.items.map((f) => {
+    const card = el("div", "item"), flags = el("div", "flags"), actions = el("div", "actions");
+    const owed = f.type === "reply_owed";
+    flags.append(el("span", "flag " + (owed ? "high" : "medium"), (owed ? "You owe a reply" : "No reply yet") + `, ${f.days_waiting}d`));
+    if (f.draft_already_saved) flags.append(el("span", "flag ok", "Draft saved"));
+    const btn = el("button", "btn needs-idle", owed ? "Draft reply" : "Draft nudge"); btn.disabled = busy;
+    btn.onclick = () => send(`${owed ? "Write my reply" : "Write a nudge"} for the email thread "${f.subject}" on the deal "${f.deal_name}" (thread id ${f.thread_id}). Check the calls and the thread first, then save it as a draft in that thread.`);
+    actions.append(btn);
+    card.append(el("h4", null, f.subject), el("div", "meta", f.deal_name), flags);
+    if (!f.draft_already_saved) card.append(actions);
+    return card;
+  }));
+}
+
 $("form").onsubmit = (e) => { e.preventDefault(); const text = input.value; input.value = ""; input.style.height = "auto"; send(text); };
 input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("form").requestSubmit(); } };
 input.oninput = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; };
 $("briefBtn").onclick = () => post("/api/brief", {});
 $("resetBtn").onclick = async () => { try { await api("/api/reset", {}); } catch (e) { messages.append(el("div", "msg error", e.message)); } };
-$("refreshBtn").onclick = loadPipeline;
 
-showEmpty(); loadStatus().catch(() => {}); loadPipeline(); poll();
+$("refreshBtn").onclick = () => { loadPipeline(); loadInbox(); loadFollowups(); };
+showEmpty(); loadStatus().catch(() => {}); loadPipeline(); loadInbox(); loadFollowups(); poll();
+setInterval(loadInbox, 60000);
 </script>
 </body>
 </html>
